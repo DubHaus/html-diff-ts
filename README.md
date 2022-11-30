@@ -6,7 +6,7 @@ JavaScript port of [HtmlDiff.NET](https://github.com/Rohland/htmldiff.net)
 
 ## Project Description
 
-Diffs two HTML blocks, and returns a meshing of the two that includes `<ins>` and `<del>` elements. The classes of these elements are `ins.diffins` for new code, `del.diffdel` for removed code, and `del.diffmod` and `ins.diffmod` for sections of code that have been changed.
+Comparing two HTML blocks, and returns a meshing of the two that includes `<ins>` and `<del>` elements. The classes of these elements are `ins.diffins` for new code, `del.diffdel` for removed code, and `del.diffmod` and `ins.diffmod` for sections of code that have been changed.
 
 For "special tags" (primarily style tags such as `<em>` and `<strong>`), `ins.mod` elements are inserted with the new styles.
 
@@ -14,7 +14,9 @@ For "special tags" (primarily style tags such as `<em>` and `<strong>`), `ins.mo
 
 Options:
 
--   `blocksExpression` - list of RegExpressions which will be countes as one block insteadof deviding it on parts (better see example)
+-   `blocksExpression` - list of Regular Expressions which will be countes as one block (token) instead of dividing it on parts by default mechanism (better see example)
+    -   `exp` - Regular Expression for token itself
+    -   `compareBy` - Regular Expression for part of the token by which will be comparison made
 
 ## Usage
 
@@ -58,7 +60,7 @@ let oldHtml = '<p>12.11.2022</p>';
 let newHtml = '<p>15.12.2022</p>';
 let dateRegepx = /\d\d\.\d\d\.\d\d\d\d/gm;
 
-let result = (oldHtml, newHtml, { blocksExpression: [dateRegepx] });
+let result = (oldHtml, newHtml, {blocksExpression: [{exp: dateRegepx}]});
 ```
 
 Result:
@@ -75,5 +77,74 @@ Visualization:
 <p>
 - <em>12.11.2022</em>
 + <b>15.12.2022</b>
+</p>
+```
+
+### With blocksExpression and compareBy
+No diff
+```javascript
+import diff from 'html-diff-ts';
+
+let oldHtml = '<img src="./old.png" title="title-1" />'; // "src" attr is different but "title" - is the same
+let newHtml = '<img src="./new.png" title="title-1" />'; // "src" attr is different but "title" - is the same
+
+let result =
+    (oldHtml,
+    newHtml,
+    {
+        blocksExpression: [
+            {
+                exp: /<img[\w\W]+?\/>/g, // match <img/> tag
+                compareBy: /title="[\w\W]+?"/g, // compare only by title="" attribute
+            },
+        ],
+    });
+```
+
+Result:
+Will return the new string without comparison to old one - because title attrubite is the same
+
+```html
+<img src="./new.png" title="title-1" />
+```
+
+Has diff
+```javascript
+import diff from 'html-diff-ts';
+
+let oldHtml = '<img src="./old.png" title="old-title" />'; // "title" attr is different
+let newHtml = '<img src="./new.png" title="new-title" />'; // "title" attr is different
+
+let result =
+    (oldHtml,
+    newHtml,
+    {
+        blocksExpression: [
+            {
+                exp: /<img[\w\W]+?\/>/g, // match <img/> tag
+                compareBy: /title="[\w\W]+?"/g, // compare only by title="" attribute
+            },
+        ],
+    });
+```
+
+Result:
+Will return the new string with diff to old one - because title attrubite has changed
+
+```html
+<del>
+    <img src="./old.png" title="old-title" />
+</del>
+<ins>
+    <img src="./new.png" title="new-title" />
+</ins>
+```
+
+Visualization:
+
+```diff
+<p>
+- <img src="./old.png" title="old-title" />
++ <img src="./new.png" title="new-title" />
 </p>
 ```
