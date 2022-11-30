@@ -19,3 +19,8 @@ export type MatchOptions = {
     repeatingWordsAccuracy: number;
     ignoreWhitespaceDifferences: boolean;
 };
+
+export type BlockExpression = {
+    exp: RegExp;
+    compareBy?: RegExp;
+};

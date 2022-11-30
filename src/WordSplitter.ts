@@ -1,14 +1,27 @@
-﻿import {Mode} from './types';
+﻿import {BlockExpression, Mode} from './types';
 import * as Utils from './Utils';
+
+type BlockLocation = {
+    wordBoundaries: {
+        starts: number;
+        ends: number;
+    };
+    targetBoundaries?: {
+        starts: number;
+        ends: number;
+    };
+};
+
+type Word = string[];
 
 class WordSplitter {
     private static state = {
         mode: Mode.character,
         currentWord: [] as string[],
-        words: [] as string[],
+        words: [] as Word[],
     };
 
-    private static blockLocations: Map<number, number>;
+    private static blockLocations: BlockLocation[];
 
     private static prepare() {
         this.state = {
@@ -16,19 +29,20 @@ class WordSplitter {
             currentWord: [],
             words: [],
         };
-        this.blockLocations = new Map();
+        this.blockLocations = [];
     }
 
     public static convertHtmlToListOfWords(
         text: string,
-        blockExpressions: RegExp[] = []
+        blockExpressions: BlockExpression[] = []
     ) {
         this.prepare();
         this.findBlocks(text, blockExpressions);
 
-        const isBlockCheckRequired = !!this.blockLocations.size;
+        const isBlockCheckRequired = !!this.blockLocations.length;
         let isGrouping = false;
         let groupingUntil = -1;
+        let blockLocation: BlockLocation | undefined;
 
         for (let idx = 0; idx < text.length; idx++) {
             var character = text[idx];
@@ -39,16 +53,40 @@ class WordSplitter {
                 if (groupingUntil === idx) {
                     groupingUntil = -1;
                     isGrouping = false;
+
+                    this.state.currentWord.push(character);
+                    const originalWord = this.state.currentWord.join('');
+                    if (blockLocation?.targetBoundaries) {
+                        const newWord = originalWord.slice(
+                            blockLocation?.targetBoundaries.starts,
+                            blockLocation?.targetBoundaries.ends
+                        );
+                        this.state.words.push([newWord, originalWord]);
+                    } else {
+                        this.state.words.push([originalWord]);
+                    }
+
+                    this.state.currentWord = [];
+                    this.state.mode = Mode.character;
+                    blockLocation = undefined;
+                    continue;
                 }
 
-                // Check if we need to group the next text sequence/block
-                if (this.blockLocations.has(idx)) {
-                    if(this.state.currentWord) { 
-                        this.state.words.push(this.state.currentWord.join(''));
+                // Check if we need to group the next text sequence/block;
+                let newBlockLocation = this.blockLocations.find(
+                    el => el.wordBoundaries.starts === idx
+                );
+
+                if (newBlockLocation) {
+                    blockLocation = newBlockLocation;
+                    if (this.state.currentWord.length !== 0) {
+                        this.state.words.push([
+                            this.state.currentWord.join(''),
+                        ]);
                         this.state.currentWord = [];
                     }
                     isGrouping = true;
-                    groupingUntil = this.blockLocations.get(idx)!;
+                    groupingUntil = blockLocation.wordBoundaries.ends;
                 }
 
                 // if we are grouping, then we don't care about what type of character we have, it's going to be treated as a word
@@ -88,7 +126,9 @@ class WordSplitter {
                 case Mode.tag:
                     if (Utils.isEndOfTag(character)) {
                         this.state.currentWord.push(character);
-                        this.state.words.push(this.state.currentWord.join(''));
+                        this.state.words.push([
+                            this.state.currentWord.join(''),
+                        ]);
 
                         this.state.currentWord = [];
                         this.state.mode = Mode.character;
@@ -99,7 +139,7 @@ class WordSplitter {
                     break;
 
                 case Mode.number:
-                    this.state.words.push(this.state.currentWord.join(''));
+                    this.state.words.push([this.state.currentWord.join('')]);
                     this.state.currentWord = [];
 
                     if (Utils.isStartOfTag(character)) {
@@ -142,9 +182,9 @@ class WordSplitter {
                         let switchToNextMode = true;
                         if (this.state.currentWord.length !== 0) {
                             this.state.currentWord.push(character);
-                            this.state.words.push(
-                                this.state.currentWord.join('')
-                            );
+                            this.state.words.push([
+                                this.state.currentWord.join(''),
+                            ]);
                         }
 
                         if (switchToNextMode) {
@@ -162,7 +202,7 @@ class WordSplitter {
         }
 
         if (this.state.currentWord.length !== 0) {
-            this.state.words.push(this.state.currentWord.join(''));
+            this.state.words.push([this.state.currentWord.join('')]);
         }
 
         return this.state.words;
@@ -170,27 +210,62 @@ class WordSplitter {
 
     private static addClearWordSwitchMode(character: string, mode: Mode) {
         if (this.state.currentWord.length !== 0) {
-            this.state.words.push(this.state.currentWord.join(''));
+            this.state.words.push([this.state.currentWord.join('')]);
         }
 
         this.state.currentWord = [character];
         this.state.mode = mode;
     }
 
-    private static findBlocks(text: string, blockExpressions: RegExp[]) {
-        for (let exp of blockExpressions) {
-            let m;
-            while ((m = exp.exec(text)) !== null) {
-                if (this.blockLocations.has(m.index)) {
-                    throw new Error(
-                        'One or more block expressions result in a text sequence that overlaps. Current expression: ' +
-                            exp.toString()
-                    );
-                }
+    private static findBlocks(
+        text: string,
+        blockExpressions: BlockExpression[]
+    ) {
+        blockExpressions.forEach(exp => {
+            const matches = text.matchAll(exp.exp);
 
-                this.blockLocations.set(m.index, m.index + m[0].length);
+            for (let match of matches) {
+                if (match.index !== undefined) {
+                    if (
+                        this.blockLocations.find(
+                            el =>
+                                el.wordBoundaries.starts <=
+                                    (match.index || 0) &&
+                                (match.index || 0) <= el.wordBoundaries.ends
+                        )
+                    ) {
+                        throw new Error(
+                            'One or more block expressions result in a text sequence that overlaps. Current expression: ' +
+                                exp.exp.toString()
+                        );
+                    }
+
+                    const target =
+                        exp.compareBy &&
+                        [...match[0].matchAll(exp.compareBy)][0];
+
+                    if (target && target.index !== undefined) {
+                        this.blockLocations.push({
+                            wordBoundaries: {
+                                starts: match.index,
+                                ends: match.index + match[0].length - 1,
+                            },
+                            targetBoundaries: {
+                                starts: target.index,
+                                ends: target.index + target[0].length,
+                            },
+                        });
+                    } else {
+                        this.blockLocations.push({
+                            wordBoundaries: {
+                                starts: match.index,
+                                ends: match.index! + match[0].length - 1,
+                            },
+                        });
+                    }
+                }
             }
-        }
+        });
     }
 }
 

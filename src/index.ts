@@ -1,7 +1,8 @@
 import HtmlDiff from './Diff';
+import {BlockExpression} from './types';
 
 type Options = {
-    blocksExpression?: RegExp[];
+    blocksExpression?: BlockExpression[];
 };
 
 const diff = (
@@ -11,7 +12,7 @@ const diff = (
 ) => {
     const finder = new HtmlDiff(oldText, newText);
     if (blocksExpression) {
-        blocksExpression.forEach(finder.addBlockExpression);
+        blocksExpression.forEach(block => finder.addBlockExpression(block));
     }
     return finder.diff();
 };

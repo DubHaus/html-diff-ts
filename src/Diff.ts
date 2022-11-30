@@ -1,4 +1,4 @@
-﻿import {Action} from './types';
+﻿import {Action, BlockExpression} from './types';
 import Match from './Match';
 import MatchFinder from './MatchFinder';
 import Operation from './Operation';
@@ -41,9 +41,11 @@ class HtmlDiff {
     private specialTagDiffStack: string[];
     private newWords: string[];
     private oldWords: string[];
+    private orinalWordsInNew: Map<number, string>;
+    private orinalWordsInOld: Map<number, string>;
 
     private matchGranularity: number;
-    private blockExpressions: RegExp[];
+    private blockExpressions: BlockExpression[];
 
     private repeatingWordsAccuracy: number;
     private ignoreWhiteSpaceDifferences: boolean;
@@ -56,7 +58,9 @@ class HtmlDiff {
 
         this.specialTagDiffStack = [];
         this.newWords = [];
+        this.orinalWordsInNew = new Map();
         this.oldWords = [];
+        this.orinalWordsInOld = new Map();
         this.matchGranularity = 0;
         this.blockExpressions = [];
 
@@ -81,6 +85,15 @@ class HtmlDiff {
         );
         let operations = this.operations();
 
+        // set original words 
+        this.orinalWordsInOld.forEach((value, key) => {
+            this.oldWords[key] = value;
+        });
+
+        this.orinalWordsInNew.forEach((value, key) => {
+            this.newWords[key] = value;
+        });
+
         for (let item of operations) {
             this.performOperation(item);
         }
@@ -88,23 +101,32 @@ class HtmlDiff {
         return this.content.join('');
     }
 
-    addBlockExpression(exp: RegExp) {
+    addBlockExpression(exp: BlockExpression) {
         this.blockExpressions.push(exp);
     }
 
     splitInputsIntoWords() {
-        this.oldWords = WordSplitter.convertHtmlToListOfWords(
+        const words = WordSplitter.convertHtmlToListOfWords(
             this.oldText,
             this.blockExpressions
         );
+        words.forEach((el, idx) => {
+            el[1] && this.orinalWordsInOld.set(idx, el[1]);
+        });
+        this.oldWords = words.map(el => el[0]);
 
         //free memory, allow it for GC
         this.oldText = '';
 
-        this.newWords = WordSplitter.convertHtmlToListOfWords(
+        const newWords = WordSplitter.convertHtmlToListOfWords(
             this.newText,
             this.blockExpressions
         );
+
+        newWords.forEach(
+            (el, idx) => el[1] && this.orinalWordsInNew.set(idx, el[1])
+        );
+        this.newWords = newWords.map(el => el[0]);
 
         //free memory, allow it for GC
         this.newText = '';
